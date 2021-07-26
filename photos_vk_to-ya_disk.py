@@ -1,22 +1,23 @@
 import requests
+import json
 from pprint import pprint
 from datetime import datetime
+import time
 
 class VKPhotosLoader:
 
-    def __init__(self):
-        with open('token_vk.txt', 'r') as file:
-            self.token_vk = file.read().strip()
+    def __init__(self, token_vk, vk_user_id, num_of_photos=5):
+        self.token_vk = token_vk
+        self.vk_user_id = vk_user_id
+        self.num_of_photos = num_of_photos
 
-    def inputUserID(self, user_id='1'):
-        with open('user_id_vk.txt', 'r') as file:
-            self.user_id= file.read()
-        return self.user_id
+    def get_user_id(self):
+        return self.vk_user_id
 
-    def getPhotosVK(self):
+    def get_photos_VK(self):
         url_vk = 'https://api.vk.com/method/photos.get'
         params = {
-                 'user_id': self.inputUserID(),
+                 'user_id': self.vk_user_id,
                  'access_token': self.token_vk,
                  'v': '5.131',
                  'album_id': 'profile',
@@ -25,24 +26,11 @@ class VKPhotosLoader:
         vk_photo_info = requests.get(url_vk, params).json()
         return vk_photo_info
 
-
-class YaDisk:
-    def __init__(self):
-        with open('token_ya.txt', 'r') as file:
-            self.token = file.read().strip()
-
-    def getHeaders(self):
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': 'OAuth {}'.format(self.token)
-        }
-
-    def getParams(self, num_of_photos=5):
+    def get_largest_photos(self):
         largest_photos_list = []
-        num_of_photos = int(input("Введите количество фото: "))
-        for photos_list in VKPhotosLoader().getPhotosVK().values():
+        for photos_list in self.get_photos_VK().values():
             for photo_number in range(len(photos_list['items'])):
-                w_h_photo = -1
+                w_h_photo = -1 #width and height of photo. По-умоллчанию задано как (-1)
                 photos_sizes_list = photos_list['items'][photo_number]['sizes']
                 largest_photo_likes = photos_list['items'][photo_number]['likes']['count']
                 largest_photo_date = photos_list['items'][photo_number]['date']
@@ -54,55 +42,65 @@ class YaDisk:
                         largest_photo_type = photo['type']
                 largest_photos_list.append((size_photo, largest_photo_likes, largest_photo_date, largest_photo_type,  largest_photo_url))
         largest_photos_list.sort(reverse=True)
-        largest_photos_list = largest_photos_list[:num_of_photos]
+        largest_photos_list = largest_photos_list[:self.num_of_photos]
         return largest_photos_list
 
-    def checkCurrentTime(self):
-        current_datetime = datetime.now()
-        current_datetime = f"{current_datetime.day}{current_datetime.hour}{current_datetime.minute}"
-        return current_datetime
+class YaDisk:
+    def __init__(self, token_ya):
+        self.token_ya = token_ya
 
-    def createFolder(self):
+    def get_headers(self):
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': 'OAuth {}'.format(self.token_ya)
+        }
+
+    def create_folder(self):
         url_fold_create_ya = 'https://cloud-api.yandex.net/v1/disk/resources'
         params = {
-            "path": f"{self.checkCurrentTime()}_ID{VKPhotosLoader().inputUserID()}"
+            "path": f"{get_current_time()}_ID{VKPhotosLoader(token_vk, vk_user_id, num_of_photos).get_user_id()}"
         }
-        creation =requests.put(url=url_fold_create_ya, params=params, headers=self.getHeaders())
+        creation = requests.put(url=url_fold_create_ya, params=params, headers=self.get_headers())
         return creation.json()
 
-    def uploadPhoto(self):
+    def upload_photo(self):
         files_name_list = []
+
+        list_for_json =[]
         url_ya = 'https://cloud-api.yandex.net/v1/disk/resources/upload'
-        self.createFolder()
-        for photo_tuple in self.getParams():
-            print("█", end='')
+        self.create_folder()
+        for photo_tuple in VKPhotosLoader(token_vk, vk_user_id, num_of_photos).get_largest_photos():
+            print(photo_tuple)
+            dict_for_json = {}
             params = {
-                "path": f'{self.checkCurrentTime()}_ID{VKPhotosLoader().inputUserID()}/{photo_tuple[1]}',
+                "path": f'{get_current_time()}_ID{VKPhotosLoader(token_vk, vk_user_id, num_of_photos).get_user_id()}/{photo_tuple[1]}',
                 "overwrite": "true",
                 "url": photo_tuple[4]
             }
             if photo_tuple[1] in files_name_list:
-                params["path"] = f'{self.checkCurrentTime()}_ID{VKPhotosLoader().inputUserID()}/{photo_tuple[1]}_{photo_tuple[2]}'
+                params["path"] = f'{self.get_current_time()}_ID/{photo_tuple[1]}_{photo_tuple[2]}'
             files_name_list.append(photo_tuple[1])
-            upload = requests.post(url=url_ya, params=params, headers=self.getHeaders())
+            upload = requests.post(url=url_ya, params=params, headers=self.get_headers())
             upload2 = upload.json()
-        print()
+            dict_for_json['file_name'] = f'{photo_tuple[1]}.jpg'
+            dict_for_json['size'] = photo_tuple[3]
+            list_for_json.append(dict_for_json)
+
+        with open('photos.json', 'w') as file:
+            json.dump(list_for_json, file, indent=2, ensure_ascii=False)
         return upload2
 
-
-obj = VKPhotosLoader()
-# pprint(obj.getPhotosVK())
-# pprint(obj.getPhotosVK())
-# print(obj.inputUserID())
-# print('-------------------------------')
-# pprint(obj.filterLargePhotos())
-# print("obj2.inputUserID(()=", obj.inputUserID())
-# print("obj2.inputUserID(()=", obj.getPhotosVK())
-obj2 = YaDisk()
-# print("obj2.getHeaders()=", obj2.getHeaders())
-# print("obj2.getParams()=", obj2.getParams())
-# print("obj2.createFolder(()=", obj2.createFolder())
-# print(obj2.checkCurrentTime())
-print("obj2.uploadPhoto(()=", obj2.uploadPhoto())
+def get_current_time():
+    current_datetime = datetime.strftime(datetime.now(), "%d%H%M")
+    return current_datetime
 
 
+if __name__ == '__main__':
+    token_vk = input('Введите токен VK: ')
+    vk_user_id = input('Введите userID в VK: ')
+    token_ya = input('Введите токен Yandex\'а:')
+    num_of_photos = int(input('Введите количество загружаемых фото: '))
+    obj2 = YaDisk(token_ya)
+    # pprint(obj.get_largest_photos())
+    print(obj2.upload_photo())
+    # print(obj2.create_folder())
